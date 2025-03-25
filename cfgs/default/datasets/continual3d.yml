@@ -5,5 +5,5 @@ dataset:
     one_sample_only: False
     normalization: min-max
     intensity_aug: False
-    train_tasks: ['oasis', 'ctct', 'nlst', 'mrct']
-    test_tasks: ['oasis', 'ctct', 'nlst', 'mrct']
+    train_tasks: ['oasis']
+    test_tasks: ['oasis']

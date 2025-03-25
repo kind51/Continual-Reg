@@ -5,7 +5,7 @@ exp:
     idx_device: 0
     train:
         batch_size: 4
-        n_epochs: [10, 240, 680, 64]
+        n_epochs: [10]
         optimizer:
             name: adam
             lr: 1e-4
