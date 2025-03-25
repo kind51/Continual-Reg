@@ -14,7 +14,7 @@ class MultiTask3D:
         self.cfg = cfg
         self.mode = mode
 
-        root_path = '/datasets/Learn2Reg/'
+        root_path = '/datasets/content/drive/MyDrive/'
 
         if mode == 'val' or self.cfg.dataset.one_sample_only:
             dataset1 = CTCTDataProvider(f'{root_path}/AbdomenCTCT/valid')

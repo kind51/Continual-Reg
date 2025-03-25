@@ -11,7 +11,7 @@ class OASIS3D:
         self.mode = 'valid' if mode == 'val' else mode
         self.modalities = cfg.dataset.mods
 
-        root_path = '/Learn2Reg/OASIS'
+        root_path = '/content/drive/MyDrive/OASIS'
             
         if mode == 'train':
             training = True

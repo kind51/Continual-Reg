@@ -16,7 +16,7 @@ class Continual3D:
         self.mode = 'valid' if mode == 'val' else mode
         self.task = task
 
-        root_path = '/Learn2Reg/'
+        root_path = '/content/drive/MyDrive/'
         
         if mode == 'train':
             training = True

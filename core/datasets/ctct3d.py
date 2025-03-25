@@ -11,7 +11,7 @@ class CTCT3D:
         self.mode = mode
         self.modalities = cfg.dataset.mods
 
-        root_path = '/Learn2Reg/AbdomenCTCT'
+        root_path = '/content/drive/MyDrive/AbdomenCTCT'
 
         if mode == 'val' or self.cfg.dataset.one_sample_only:
             data_search_path = f'{root_path}/valid'
