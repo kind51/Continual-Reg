@@ -110,6 +110,11 @@ class DataProvider(Dataset):
         mask1 = load_image_nii(name1.replace(self.image_prefix, self.mask_prefix))[0]
         mask2 = load_image_nii(name2.replace(self.image_prefix, self.mask_prefix))[0]
 
+        # 原始 shape: [2, D, H, W]
+        images = np.stack([img1, img2]).transpose((0, 1, 3, 2))
+        labels = np.stack([lab1, lab2]).transpose((0, 1, 3, 2))
+        masks  = np.stack([mask1, mask2]).transpose((0, 1, 3, 2))
+
         images = self.resize_and_crop(images, self.pad_shape)
         labels = self.resize_and_crop(labels, self.pad_shape)
         masks  = self.resize_and_crop(masks,  self.pad_shape)
