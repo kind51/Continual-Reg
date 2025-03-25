@@ -15,6 +15,7 @@ import torch
 from torch.utils.data import Dataset
 from core.data.image_utils import strsort, load_image_nii
 from core.data.intensity_augment import randomIntensityFilter
+from scipy.ndimage import zoom
 
 
 class DataProvider(Dataset):
@@ -156,23 +157,22 @@ class DataProvider(Dataset):
         return batch_tensor
 
     def resize_and_crop(volume, target_shape):
-    from scipy.ndimage import zoom
 
-    # 1. 缩放比例
-    zoom_factors = [t / s for t, s in zip(target_shape, volume.shape[-3:])]
-    min_zoom = min(zoom_factors)  # 只缩放到最小缩放因子，避免过大
-    zoom_factors = [min_zoom] * 3
+        # 1. 缩放比例
+        zoom_factors = [t / s for t, s in zip(target_shape, volume.shape[-3:])]
+        min_zoom = min(zoom_factors)  # 只缩放到最小缩放因子，避免过大
+        zoom_factors = [min_zoom] * 3
 
-    # 2. 缩放（3D 插值）
-    scaled = zoom(volume, zoom=[1] * (volume.ndim - 3) + zoom_factors, order=1)
+        # 2. 缩放（3D 插值）
+        scaled = zoom(volume, zoom=[1] * (volume.ndim - 3) + zoom_factors, order=1)
 
-    # 3. center crop
-    crop_slices = []
-    for i in range(-3, 0):
-        start = max((scaled.shape[i] - target_shape[i]) // 2, 0)
-        end = start + target_shape[i]
-        crop_slices.append(slice(start, end))
-    if volume.ndim == 4:
-        return scaled[:, crop_slices[0], crop_slices[1], crop_slices[2]]
-    else:
-        return scaled[crop_slices[0], crop_slices[1], crop_slices[2]]
+        # 3. center crop
+        crop_slices = []
+        for i in range(-3, 0):
+            start = max((scaled.shape[i] - target_shape[i]) // 2, 0)
+            end = start + target_shape[i]
+            crop_slices.append(slice(start, end))
+        if volume.ndim == 4:
+            return scaled[:, crop_slices[0], crop_slices[1], crop_slices[2]]
+        else:
+            return scaled[crop_slices[0], crop_slices[1], crop_slices[2]]
