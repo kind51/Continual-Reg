@@ -160,7 +160,8 @@ class DataProvider(Dataset):
         batch_tensor['headers'] = HE
 
         return batch_tensor
-
+        
+    @staticmethod
     def resize_and_crop(volume, target_shape):
 
         # 1. 缩放比例
