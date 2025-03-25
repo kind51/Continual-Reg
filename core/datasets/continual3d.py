@@ -20,7 +20,7 @@ class Continual3D:
         
         if mode == 'train':
             training = True
-            oasis_max_length = 200 #默认会限制最多加载 10000 个样本对。修改为200 减少训练耗时，同时保留多样性
+            oasis_max_length = 100 #默认会限制最多加载 10000 个样本对。修改为200 减少训练耗时，同时保留多样性
         else:
             training = False
             oasis_max_length = 200
@@ -43,6 +43,9 @@ class Continual3D:
                                         intensity_aug=cfg.dataset.intensity_aug & (self.mode == 'train'))
 
         self.dataset = dataset
+
+        # //打印出 task 和 mode 以及 dataset 的长度
+        print("Continual3D Loaded dataset:", self.task, self.mode, len(self.dataset))
 
     def __len__(self):
         if self.mode == 'test' and self.cfg.exp.test.save_result.enable and self.cfg.exp.test.save_result.idx_sample >= 0:
