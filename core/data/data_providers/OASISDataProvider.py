@@ -110,9 +110,9 @@ class DataProvider(Dataset):
         mask1 = load_image_nii(name1.replace(self.image_prefix, self.mask_prefix))[0]
         mask2 = load_image_nii(name2.replace(self.image_prefix, self.mask_prefix))[0]
 
-        images = resize_and_crop(images, self.pad_shape)
-        labels = resize_and_crop(labels, self.pad_shape)
-        masks  = resize_and_crop(masks,  self.pad_shape)
+        images = self.resize_and_crop(images, self.pad_shape)
+        labels = self.resize_and_crop(labels, self.pad_shape)
+        masks  = self.resize_and_crop(masks,  self.pad_shape)
                 
         ori_shape = np.asarray(images.shape[-self.dimension:])
         widths = (self.pad_shape - ori_shape) // 2
