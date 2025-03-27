@@ -207,7 +207,21 @@ class Base(nn.Module):
                 
                 segs_warped = F.one_hot(segs_warped, num_classes=self.cfg.var.num_classes).float()  # [B, 2, ..., C]
                 segs_warped = rearrange(segs_warped, 'B N ... C -> B N C ...')
-                
+
+                # 检查 segs_warped 是否有效
+                if segs_warped[:, 0].sum() == 0 or segs_warped[:, 1].sum() == 0:
+                    print("警告: 分割标签全零，跳过 Dice 计算！")
+                    dices = torch.zeros(segs_warped.shape[0], device=segs_warped.device)  # 返回零值
+                else:
+                    dices = self.dice(segs_warped[:, 0], segs_warped[:, 1])
+                # 添加以下调试代码
+                print("\n===== 数据有效性检查 =====")
+                print("输入 segs_ori 的形状:", segs_ori.shape)  # 预期: [B, N, H, W, D]
+                print("输入 segs_ori 的类别值:", torch.unique(segs_ori))  # 应显示实际标签值（如 0,1,2...）
+                print("segs_warped 的形状:", segs_warped.shape)  # 应与 segs_ori 一致
+                print("配置中的 num_classes:", self.cfg.var.num_classes)  # 检查是否与数据匹配
+                print("========================\n")
+
                 dices = self.dice(segs_warped[:, 0], segs_warped[:, 1])
                 if self.cfg.exp.mode == 'test':
                     assds = monai.metrics.compute_average_surface_distance(segs_warped[:, 0], segs_warped[:, 1], symmetric=True)

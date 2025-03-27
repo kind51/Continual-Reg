@@ -81,6 +81,11 @@ class OverlapMetrics(nn.Module):
                 bottom = torch.sum(y_true[:, i] + y_seg[:, i], dim=tuple(range(1, 1 + dimension)))
                 dice.append(top.clamp(min=self.eps) / bottom.clamp(min=self.eps))
 
+            # 修改后的代码（增加空列表检查）
+            if not dice:  # 如果 dice 列表为空
+                print("警告: dice 列表为空，返回零值！")
+                return torch.zeros((y_true.shape[0], 1), device=y_true.device)  # 返回与批次大小匹配的零张量
+
             metric = torch.stack(dice, dim=-1)  # [B, C]
             if self.type == 'average_foreground_dice':
                 metric = metric.mean(dim=1)
