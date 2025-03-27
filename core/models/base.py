@@ -208,28 +208,6 @@ class Base(nn.Module):
                 segs_warped = F.one_hot(segs_warped, num_classes=self.cfg.var.num_classes).float()  # [B, 2, ..., C]
                 segs_warped = rearrange(segs_warped, 'B N ... C -> B N C ...')
 
-                # 检查 segs_warped 是否有效
-                if segs_warped[:, 0].sum() == 0 or segs_warped[:, 1].sum() == 0:
-                    print("警告: 分割标签全零，跳过 Dice 计算！")
-                    dices = torch.zeros(segs_warped.shape[0], device=segs_warped.device)  # 返回零值
-                else:
-                    dices = self.dice(segs_warped[:, 0], segs_warped[:, 1])
-                # 只处理图像和形变场，跳过分割标签
-                imgs = data['imgs']  # 假设输入只有图像
-                disp = output['disp']  # 假设输出是形变场
-
-                # 计算配准损失（如 NCC、MSE、正则化损失）
-                loss_ncc = self.ncc(imgs[:, 0], imgs[:, 1], disp)
-                loss_reg = self.bending_energy(disp)
-                loss_total = loss_ncc + 0.01 * loss_reg
-
-                return {
-                    'loss_final': loss_total,
-                    'loss_ncc': loss_ncc,
-                    'loss_reg': loss_reg
-                }
-
-
                 dices = self.dice(segs_warped[:, 0], segs_warped[:, 1])
                 if self.cfg.exp.mode == 'test':
                     assds = monai.metrics.compute_average_surface_distance(segs_warped[:, 0], segs_warped[:, 1], symmetric=True)

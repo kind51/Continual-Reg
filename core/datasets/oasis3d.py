@@ -30,13 +30,6 @@ class OASIS3D:
         self.dataset = DataProvider(data_search_path,
                                     training=training, max_length=oasis_max_length, 
                                     intensity_aug=cfg.dataset.intensity_aug & (self.mode == 'train'))
-        # === 新增调试代码 ===
-        print("\n===== 数据集样本验证 =====")
-        sample = self.dataset[0]  # 检查第一个样本
-        print("图像形状:", sample['images'].shape)  # 预期: (2, D, H, W)
-        print("标签形状:", sample['labels'].shape)
-        print("标签唯一值:", np.unique(sample['labels']))  # 应显示实际类别（如 0, 1, 2...）
-        print("========================\n")
 
     def __len__(self):
         if self.mode == 'test' and self.cfg.exp.test.save_result.enable and self.cfg.exp.test.save_result.idx_sample >= 0:
