@@ -214,13 +214,21 @@ class Base(nn.Module):
                     dices = torch.zeros(segs_warped.shape[0], device=segs_warped.device)  # 返回零值
                 else:
                     dices = self.dice(segs_warped[:, 0], segs_warped[:, 1])
-                # 添加以下调试代码
-                print("\n===== 数据有效性检查 =====")
-                print("输入 segs_ori 的形状:", segs_ori.shape)  # 预期: [B, N, H, W, D]
-                print("输入 segs_ori 的类别值:", torch.unique(segs_ori))  # 应显示实际标签值（如 0,1,2...）
-                print("segs_warped 的形状:", segs_warped.shape)  # 应与 segs_ori 一致
-                print("配置中的 num_classes:", self.cfg.var.num_classes)  # 检查是否与数据匹配
-                print("========================\n")
+                # 只处理图像和形变场，跳过分割标签
+                imgs = data['imgs']  # 假设输入只有图像
+                disp = output['disp']  # 假设输出是形变场
+
+                # 计算配准损失（如 NCC、MSE、正则化损失）
+                loss_ncc = self.ncc(imgs[:, 0], imgs[:, 1], disp)
+                loss_reg = self.bending_energy(disp)
+                loss_total = loss_ncc + 0.01 * loss_reg
+
+                return {
+                    'loss_final': loss_total,
+                    'loss_ncc': loss_ncc,
+                    'loss_reg': loss_reg
+                }
+
 
                 dices = self.dice(segs_warped[:, 0], segs_warped[:, 1])
                 if self.cfg.exp.mode == 'test':
