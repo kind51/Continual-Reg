@@ -15,7 +15,7 @@ exp:
         skip_initial_val: True
     test:
         batch_size: 2
-        path_model_trained: ./save/checkpoints/model.pth
+        path_model_trained: null
         reduce_memory: True
         save_result:
             enable: False
