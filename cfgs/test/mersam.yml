@@ -14,7 +14,7 @@ exp:
         n_epochs_once: 5
         skip_initial_val: True
     test:
-        batch_size: 2
+        batch_size: 1
         path_model_trained: null
         reduce_memory: True
         save_result:
