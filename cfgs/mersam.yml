@@ -3,7 +3,7 @@ exp:
     names_exp_delete: ['tmp', 'train_mersam']
     n_workers: 2
     idx_device: 0
-    path_save: /content/drive/MyDrive/Continual-Reg-save/
+    #path_save: /content/drive/MyDrive/Continual-Reg-save/
     train:
         batch_size: 4
         n_epochs: [10]
