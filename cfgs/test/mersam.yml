@@ -18,7 +18,7 @@ exp:
         path_model_trained: null
         reduce_memory: True
         save_result:
-            enable: False
+            enable: True
             idx_sample: 0
             img_ori: True
             img_warped: True
