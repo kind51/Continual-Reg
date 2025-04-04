@@ -174,7 +174,7 @@ class Mamba(nn.Module):
         if self.use_fast_path and inference_params is None:  # Doesn't support outputting the states
             if self.bimamba_type == "v2":
                 A_b = -torch.exp(self.A_b_log.float())
-                out = mamba_inner_fn_no_out_proj(
+                out = mamba_inner_fn(
                     xz,
                     self.conv1d.weight,
                     self.conv1d.bias,
@@ -187,7 +187,7 @@ class Mamba(nn.Module):
                     delta_bias=self.dt_proj.bias.float(),
                     delta_softplus=True,
                 )
-                out_b = mamba_inner_fn_no_out_proj(
+                out_b = mamba_inner_fn(
                     xz.flip([-1]),
                     self.conv1d_b.weight,
                     self.conv1d_b.bias,
