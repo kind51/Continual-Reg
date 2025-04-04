@@ -11,20 +11,14 @@ from torch import Tensor
 from einops import rearrange, repeat
 
 
+# 更健壮的导入方式
 try:
-    from unet.ops.selective_scan_interface import mamba_inner_fn_no_out_proj
+    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn as mamba_inner_fn
+    from mamba_ssm.ops.triton.selective_state_update import selective_state_update
+    HAS_MAMBA_OPS = True
 except ImportError:
-    mamba_inner_fn_no_out_proj = None
-
-try:
-    from unet.ops.triton.selective_state_update import selective_state_update
-except ImportError:
-    selective_state_update = None
-
-try:
-    from unet.ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
-except ImportError:
-    RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
+    print("Failed to import Mamba CUDA extensions, falling back to PyTorch implementation")
+    HAS_MAMBA_OPS = False
 
 
 class Mamba(nn.Module):
