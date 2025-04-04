@@ -36,14 +36,14 @@ class LKEncoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        
+        # 1. 初始化基础卷积层
         if cfg.dataset.dim == 2:
             Conv = nn.Conv2d
         elif cfg.dataset.dim == 3:
             Conv = nn.Conv3d
         else:
             raise NotImplementedError
-        
+        # 2. 初始化卷积块和LK卷积块
         self.init_conv = nn.Sequential(Conv(cfg.dataset.n_channels_img * 2, 
                                             cfg.net.n_channels_init, 
                                             kernel_size=3, padding='same'), 
@@ -56,6 +56,9 @@ class LKEncoder(nn.Module):
         
         self.conv_blks = nn.ModuleList()
         self.LKconv_blks = nn.ModuleList()
+        # 新增Mamba模块列表
+        self.mamba_blocks = nn.ModuleList()
+        # 3. 逐层初始化
         for i in range(cfg.net.n_levels):
             in_channels_down = cfg.net.n_channels_init * 2 ** i
 
@@ -63,26 +66,46 @@ class LKEncoder(nn.Module):
                 out_channels_down = in_channels_down * 2
             else:
                 out_channels_down = out_channels_down
-            
+            # 3.1 原始卷积层
             self.conv_blks.append(
                 nn.Sequential(Conv(in_channels_down, out_channels_down, 
                                    kernel_size=3, stride=2, padding=1), 
                               nn.PReLU())
                 )
-
+            # 3.2 LK卷积块
             self.LKconv_blks.append(
                 LKConvBlk(cfg, out_channels_down, out_channels_down)
                 )
-            
+
+            # Mamba模块列表
+            self.mamba_blocks = nn.ModuleList()
+            for i in range(cfg.net.n_levels):
+                dim = cfg.net.n_channels_init * 2 ** i
+                self.mamba_blocks.append(
+                    Mamba(
+                        d_model=dim,  # 输入通道数，例如第0层为16，第1层为32
+                        d_state=16,  # SSM状态维度
+                        d_conv=4,  # 局部卷积核大小
+                        expand=2,  # 扩展因子
+                        bimamba_type="v2"  # 双向Mamba类型
+                    )
+                )
     def forward(self, x):
         x = self.init_conv(x)
         output = [x]
         
         for i in range(self.cfg.net.n_levels):
-            x = self.conv_blks[i](x)
+            x = self.conv_blks[i](x) # 下采样
             output.append(x)
-            x = self.LKconv_blks[i](x)
-            
+            x = self.LKconv_blks[i](x) # LK卷积
+
+            # 新增Mamba处理（形状转换 → 序列处理 → 恢复形状）
+            B, C, *spatial_dims = x.shape
+            L = np.prod(spatial_dims)
+            x_seq = x.view(B, C, L).transpose(1, 2)  # [B, L, C]
+            x_seq = self.mamba_blocks[i](x_seq)  # Mamba处理
+            x = x_seq.transpose(1, 2).view(B, C, *spatial_dims)  # 恢复形状
+
         output.append(x)
 
         return output
