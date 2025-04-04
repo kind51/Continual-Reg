@@ -58,40 +58,33 @@ class LKEncoder(nn.Module):
         
         self.conv_blks = nn.ModuleList()
         self.LKconv_blks = nn.ModuleList()
-        # 新增Mamba模块列表
         self.mamba_blocks = nn.ModuleList()
         # 3. 逐层初始化
         for i in range(cfg.net.n_levels):
             in_channels_down = cfg.net.n_channels_init * 2 ** i
+            out_channels_down = in_channels_down * 2 if i < cfg.net.n_levels - 1 else in_channels_down
 
-            if i < cfg.net.n_levels - 1:
-                out_channels_down = in_channels_down * 2
-            else:
-                out_channels_down = out_channels_down
             # 3.1 原始卷积层
             self.conv_blks.append(
                 nn.Sequential(Conv(in_channels_down, out_channels_down, 
                                    kernel_size=3, stride=2, padding=1), 
                               nn.PReLU())
-                )
+            )
             # 3.2 LK卷积块
             self.LKconv_blks.append(
                 LKConvBlk(cfg, out_channels_down, out_channels_down)
                 )
 
-            # Mamba模块列表
-            self.mamba_blocks = nn.ModuleList()
-            for i in range(cfg.net.n_levels):
-                out_channels = cfg.net.n_channels_init * (2 ** i)
-                self.mamba_blocks.append(
-                    Mamba(
-                        d_model=out_channels,  # 输入通道数，例如第0层为16，第1层为32
-                        d_state=16,  # SSM状态维度
-                        d_conv=4,  # 局部卷积核大小
-                        expand=2,  # 扩展因子
-                        bimamba_type="v2"  # 双向Mamba类型
-                    )
+            # Mamba模块
+            self.mamba_blocks.append(
+                Mamba(
+                    d_model=out_channels_down,  # 输入通道数，例如第0层为16，第1层为32
+                    d_state=16,  # SSM状态维度
+                    d_conv=4,  # 局部卷积核大小
+                    expand=2,  # 扩展因子
+                    bimamba_type="v2"  # 双向Mamba类型#
                 )
+            )
     def forward(self, x):
         x = self.init_conv(x)
         output = [x]
@@ -101,13 +94,12 @@ class LKEncoder(nn.Module):
             output.append(x)
             x = self.LKconv_blks[i](x) # LK卷积
 
-            # 新增Mamba处理（形状转换 → 序列处理 → 恢复形状）
+            # Mamba处理（形状转换 → 序列处理 → 恢复形状）
             B, C, *spatial_dims = x.shape
-            assert C == self.mamba_blocks[i].d_model
             L = np.prod(spatial_dims)
-            x_seq = x.view(B, C, -1).transpose(1, 2)  # [B, L, C]
+            x_seq = x.view(B, C, L).transpose(1, 2)  # [B, L, C]
             x_seq = self.mamba_blocks[i](x_seq)  # Mamba处理
-            x = x_seq.transpose(1, 2).view(B, C, *spatial)  # 恢复形状
+            x = x_seq.transpose(1, 2).view(B, C, *spatial_dims)  # 恢复形状
 
         output.append(x)
 
