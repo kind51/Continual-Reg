@@ -1,9 +1,10 @@
 from core.register.SpatialTransformer import SpatialTransformer, ResizeTransform
 from core.register.VectorIntegration import VectorIntegration
-from Mamba_ import Mamba
+# from Mamba_ import Mamba
 import numpy as np
 import torch
 import torch.nn as nn
+from mamba_test import MambaLayer
 
 
 class LKConvBlk(nn.Module):
@@ -76,15 +77,20 @@ class LKEncoder(nn.Module):
                 )
 
             # Mamba模块
-            self.mamba_blocks.append(
-                Mamba(
-                    d_model=out_channels_down,  # 输入通道数，例如第0层为16，第1层为32
-                    d_state=16,  # SSM状态维度
-                    d_conv=4,  # 局部卷积核大小
-                    expand=2,  # 扩展因子
-                    bimamba_type="v2"  # 双向Mamba类型#
-                )
-            )
+            self.mamba_stage = nn.ModuleList
+            dim = [32,64,128,128]
+            for i in range(4):
+                mamba_stage = nn.Sequential(*[MambaLayer(in_dim=dim[i],dim=[i])])
+                self.mamba_stage.append(mamba_stage)
+            # self.mamba_blocks.append(
+            #     Mamba(
+            #         d_model=out_channels_down,  # 输入通道数，例如第0层为16，第1层为32
+            #         d_state=16,  # SSM状态维度
+            #         d_conv=4,  # 局部卷积核大小
+            #         expand=2,  # 扩展因子
+            #         bimamba_type="v2"  # 双向Mamba类型#
+            #     )
+            # )
     def forward(self, x):
         x = self.init_conv(x)
         output = [x]
@@ -94,12 +100,14 @@ class LKEncoder(nn.Module):
             output.append(x)
             x = self.LKconv_blks[i](x) # LK卷积
 
-            # Mamba处理（形状转换 → 序列处理 → 恢复形状）
-            B, C, *spatial_dims = x.shape
-            L = np.prod(spatial_dims)
-            x_seq = x.view(B, C, L).transpose(1, 2)  # [B, L, C]
-            x_seq = self.mamba_blocks[i](x_seq)  # Mamba处理
-            x = x_seq.transpose(1, 2).view(B, C, *spatial_dims)  # 恢复形状
+            x = self.mamba_stage[i](x)
+
+            # # Mamba处理（形状转换 → 序列处理 → 恢复形状）
+            # B, C, *spatial_dims = x.shape
+            # L = np.prod(spatial_dims)
+            # x_seq = x.view(B, C, L).transpose(1, 2)  # [B, L, C]
+            # x_seq = self.mamba_blocks[i](x_seq)  # Mamba处理
+            # x = x_seq.transpose(1, 2).view(B, C, *spatial_dims)  # 恢复形状
 
         output.append(x)
 

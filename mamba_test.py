@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import torch
 import torch.nn as nn
 
-from myfile.Mamba_ import Mamba
+from Mamba_ import Mamba
 
 
 class MambaLayer(nn.Module):
@@ -42,12 +42,14 @@ class MambaLayer(nn.Module):
 
 
 
-if __name__ == "__main__":
-    img = torch.ones([1, 4, 128, 128, 128]).cuda()
-    dims = [4,16, 32, 64, 128]
-    model = MambaLayer(in_dim=dims[0],dim=dims[1])
-    model = model.cuda()
-
-    out_img = model(img)
-
-    print("Shape of out :", out_img.shape)  # [B, in_channels, image_size, image_size]
+# if __name__ == "__main__":
+#     # img = torch.ones([1, 4, 128, 128, 128]).cuda()
+#     img = torch.ones([1, 4, 128, 128, 128])
+#     dims = [4,16, 32, 64, 128]
+#     model = MambaLayer(in_dim=dims[0],dim=dims[1])
+#     # model = model.cuda()
+#     model = model
+#
+#     out_img = model(img)
+#
+#     print("Shape of out :", out_img.shape)  # [B, in_channels, image_size, image_size]
