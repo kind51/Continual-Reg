@@ -50,6 +50,11 @@ class LKEncoder(nn.Module):
         self.init_conv = nn.Sequential(Conv(cfg.dataset.n_channels_img * 2,
                                             cfg.net.n_channels_init,
                                             kernel_size=3, padding='same'),
+                                       nn.PReLU(),
+                                       Conv(cfg.net.n_channels_init,
+                                            cfg.net.n_channels_init,
+                                            kernel_size=3, padding='same'),
+                                       nn.PReLU())
 
 
         self.conv_blks = nn.ModuleList()
