@@ -11,14 +11,20 @@ from torch import Tensor
 from einops import rearrange, repeat
 
 
-# 更健壮的导入方式
 try:
-    from mamba_ssm.ops.selective_scan_interface import selective_scan_fn as mamba_inner_fn
-    from mamba_ssm.ops.triton.selective_state_update import selective_state_update
-    HAS_MAMBA_OPS = True
+    from ops.selective_scan_interface import mamba_inner_fn_no_out_proj
 except ImportError:
-    print("Failed to import Mamba CUDA extensions, falling back to PyTorch implementation")
-    HAS_MAMBA_OPS = False
+    mamba_inner_fn_no_out_proj = None
+
+try:
+    from ops.triton.selective_state_update import selective_state_update
+except ImportError:
+    selective_state_update = None
+
+try:
+    from ops.triton.layernorm import RMSNorm, layer_norm_fn, rms_norm_fn
+except ImportError:
+    RMSNorm, layer_norm_fn, rms_norm_fn = None, None, None
 
 
 class Mamba(nn.Module):
@@ -121,7 +127,7 @@ class Mamba(nn.Module):
         ).contiguous()
         A_b_log = torch.log(A_b)  # Keep A_b_log in fp32
         self.A_b_log = nn.Parameter(A_b_log)
-        self.A_b_log._no_weight_decay = True 
+        self.A_b_log._no_weight_decay = True
 
         self.conv1d_b = nn.Conv1d(
             in_channels=self.d_inner,
@@ -174,7 +180,7 @@ class Mamba(nn.Module):
         if self.use_fast_path and inference_params is None:  # Doesn't support outputting the states
             if self.bimamba_type == "v2":
                 A_b = -torch.exp(self.A_b_log.float())
-                out = mamba_inner_fn(
+                out = mamba_inner_fn_no_out_proj(
                     xz,
                     self.conv1d.weight,
                     self.conv1d.bias,
@@ -187,7 +193,7 @@ class Mamba(nn.Module):
                     delta_bias=self.dt_proj.bias.float(),
                     delta_softplus=True,
                 )
-                out_b = mamba_inner_fn(
+                out_b = mamba_inner_fn_no_out_proj(
                     xz.flip([-1]),
                     self.conv1d_b.weight,
                     self.conv1d_b.bias,
