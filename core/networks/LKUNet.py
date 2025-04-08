@@ -47,24 +47,22 @@ class LKEncoder(nn.Module):
         else:
             raise NotImplementedError
         # 2. 初始化卷积块和LK卷积块
-        self.init_conv = nn.Sequential(Conv(cfg.dataset.n_channels_img * 2, 
-                                            cfg.net.n_channels_init, 
-                                            kernel_size=3, padding='same'), 
-                                       nn.PReLU(), 
-                                       Conv(cfg.net.n_channels_init,
+        self.init_conv = nn.Sequential(Conv(cfg.dataset.n_channels_img * 2,
                                             cfg.net.n_channels_init,
                                             kernel_size=3, padding='same'),
-                                       nn.PReLU())
-        
-        
+
+
         self.conv_blks = nn.ModuleList()
         self.LKconv_blks = nn.ModuleList()
-        self.mamba_blocks = nn.ModuleList()
+
         # 3. 逐层初始化
         for i in range(cfg.net.n_levels):
             in_channels_down = cfg.net.n_channels_init * 2 ** i
-            out_channels_down = in_channels_down * 2 if i < cfg.net.n_levels - 1 else in_channels_down
 
+        if i < cfg.net.n_levels - 1:
+            out_channels_down = in_channels_down * 2
+        else:
+            out_channels_down = out_channels_down
             # 3.1 原始卷积层
             self.conv_blks.append(
                 nn.Sequential(Conv(in_channels_down, out_channels_down, 
@@ -76,21 +74,7 @@ class LKEncoder(nn.Module):
                 LKConvBlk(cfg, out_channels_down, out_channels_down)
                 )
 
-            # Mamba模块
-            self.mamba_stage = nn.ModuleList
-            dim = [32,64,128,128]
-            for i in range(4):
-                mamba_stage = nn.Sequential(*[MambaLayer(in_dim=dim[i],dim=[i])])
-                self.mamba_stage.append(mamba_stage)
-            # self.mamba_blocks.append(
-            #     Mamba(
-            #         d_model=out_channels_down,  # 输入通道数，例如第0层为16，第1层为32
-            #         d_state=16,  # SSM状态维度
-            #         d_conv=4,  # 局部卷积核大小
-            #         expand=2,  # 扩展因子
-            #         bimamba_type="v2"  # 双向Mamba类型#
-            #     )
-            # )
+
     def forward(self, x):
         x = self.init_conv(x)
         output = [x]
