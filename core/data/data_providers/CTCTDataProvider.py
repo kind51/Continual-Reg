@@ -33,6 +33,7 @@ class DataProvider(Dataset):
 
     """
     dimension = 3
+
     def __init__(self, data_search_path, training=False, **kwargs):
         self.data_search_path = data_search_path
         self.training = training
@@ -61,16 +62,16 @@ class DataProvider(Dataset):
         :param data_search_path:
         :return:
         """
-        all_nii_names = strsort(glob.glob(os.path.join(data_search_path, 
-                                                       '**/*.nii.gz'), 
+        all_nii_names = strsort(glob.glob(os.path.join(data_search_path,
+                                                       '**/*.nii.gz'),
                                           recursive=True))
         all_nii_names = [os.path.normpath(name) for name in all_nii_names]
         all_img_names = [name for name in all_nii_names if name.split(os.path.sep)[-2] == self.image_prefix]
-        
+
         CT_img_names = [
             name for name in all_img_names if self.ct_suffix in os.path.basename(name)
-            ]
-        
+        ]
+
         if self.training:
             pair_names = list(itertools.product(CT_img_names, CT_img_names))
         else:
@@ -92,7 +93,7 @@ class DataProvider(Dataset):
             img1 = img1 - np.min(img1)
         if np.min(img2) < 0:
             img2 = img2 - np.min(img2)
-            
+
         if self.intensity_aug:
             img1 = randomIntensityFilter(img1)
             img2 = randomIntensityFilter(img2)
@@ -100,16 +101,16 @@ class DataProvider(Dataset):
         lab1 = load_image_nii(name1.replace(self.image_prefix, self.label_prefix))[0]
         lab2 = load_image_nii(name2.replace(self.image_prefix, self.label_prefix))[0]
 
-        images = np.stack([img1, img2]) # [2, *vol_shape]
-        labels = np.stack([lab1, lab2]) # [2, *vol_shape]
-        
+        images = np.stack([img1, img2])  # [2, *vol_shape]
+        labels = np.stack([lab1, lab2])  # [2, *vol_shape]
+
         # crop roi
         half = np.asarray(images.shape[-self.dimension:]) // 2
         r = self.crop_shape // 2
         images = images[..., half[0] - r[0]:half[0] + r[0],
-                        half[1] - r[1]:half[1] + r[1], half[2] - r[2]:half[2] + r[2]]
+                 half[1] - r[1]:half[1] + r[1], half[2] - r[2]:half[2] + r[2]]
         labels = labels[..., half[0] - r[0]:half[0] + r[0],
-                        half[1] - r[1]:half[1] + r[1], half[2] - r[2]:half[2] + r[2]]
+                 half[1] - r[1]:half[1] + r[1], half[2] - r[2]:half[2] + r[2]]
 
         names = [os.path.basename(name)[:-7] for name in pair_names]
         names = '_'.join(names)

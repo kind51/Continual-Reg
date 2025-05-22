@@ -1,10 +1,7 @@
 from core.register.SpatialTransformer import SpatialTransformer, ResizeTransform
 from core.register.VectorIntegration import VectorIntegration
-# from Mamba_ import Mamba
-import numpy as np
 import torch
 import torch.nn as nn
-from mamba_test import MambaLayer
 
 
 class LKConvBlk(nn.Module):
@@ -12,41 +9,41 @@ class LKConvBlk(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.output = None
-        
+
         if cfg.dataset.dim == 2:
             Conv = nn.Conv2d
         elif cfg.dataset.dim == 3:
             Conv = nn.Conv3d
         else:
             raise NotImplementedError
-        
+
         self.activation = nn.PReLU()
-        
+
         self.conv_regular = Conv(in_channels, out_channels, kernel_size=3, padding='same', bias=True)
-        
+
         self.conv_one = Conv(in_channels, out_channels, kernel_size=1, bias=True)
-        
+
         self.conv_large = Conv(in_channels, out_channels, kernel_size=cfg.net.large_kernel, padding='same')
-        
+
     def forward(self, x):
-        
+
         y = self.conv_regular(x) + self.conv_one(x) + self.conv_large(x) + x
-        
+
         return self.activation(y)
-    
-    
+
+
 class LKEncoder(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        # 1. 初始化基础卷积层
+
         if cfg.dataset.dim == 2:
             Conv = nn.Conv2d
         elif cfg.dataset.dim == 3:
             Conv = nn.Conv3d
         else:
             raise NotImplementedError
-        # 2. 初始化卷积块和LK卷积块
+
         self.init_conv = nn.Sequential(Conv(cfg.dataset.n_channels_img * 2,
                                             cfg.net.n_channels_init,
                                             kernel_size=3, padding='same'),
@@ -56,59 +53,46 @@ class LKEncoder(nn.Module):
                                             kernel_size=3, padding='same'),
                                        nn.PReLU())
 
-
         self.conv_blks = nn.ModuleList()
         self.LKconv_blks = nn.ModuleList()
-
-        # 3. 逐层初始化
         for i in range(cfg.net.n_levels):
             in_channels_down = cfg.net.n_channels_init * 2 ** i
 
-        if i < cfg.net.n_levels - 1:
-            out_channels_down = in_channels_down * 2
-        else:
-            out_channels_down = out_channels_down
-            # 3.1 原始卷积层
+            if i < cfg.net.n_levels - 1:
+                out_channels_down = in_channels_down * 2
+            else:
+                out_channels_down = out_channels_down
+
             self.conv_blks.append(
-                nn.Sequential(Conv(in_channels_down, out_channels_down, 
-                                   kernel_size=3, stride=2, padding=1), 
+                nn.Sequential(Conv(in_channels_down, out_channels_down,
+                                   kernel_size=3, stride=2, padding=1),
                               nn.PReLU())
             )
-            # 3.2 LK卷积块
+
             self.LKconv_blks.append(
                 LKConvBlk(cfg, out_channels_down, out_channels_down)
-                )
-
+            )
 
     def forward(self, x):
         x = self.init_conv(x)
         output = [x]
-        
+
         for i in range(self.cfg.net.n_levels):
-            x = self.conv_blks[i](x) # 下采样
+            x = self.conv_blks[i](x)
             output.append(x)
-            x = self.LKconv_blks[i](x) # LK卷积
-
-            x = self.mamba_stage[i](x)
-
-            # # Mamba处理（形状转换 → 序列处理 → 恢复形状）
-            # B, C, *spatial_dims = x.shape
-            # L = np.prod(spatial_dims)
-            # x_seq = x.view(B, C, L).transpose(1, 2)  # [B, L, C]
-            # x_seq = self.mamba_blocks[i](x_seq)  # Mamba处理
-            # x = x_seq.transpose(1, 2).view(B, C, *spatial_dims)  # 恢复形状
+            x = self.LKconv_blks[i](x)
 
         output.append(x)
 
         return output
-    
-    
+
+
 class LKDecoder(nn.Module):
-    
+
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        
+
         if cfg.dataset.dim == 2:
             Conv = nn.Conv2d
             Deconv = nn.ConvTranspose2d
@@ -117,50 +101,53 @@ class LKDecoder(nn.Module):
             Deconv = nn.ConvTranspose3d
         else:
             raise NotImplementedError
-        
-        self.warpers = nn.ModuleList([SpatialTransformer([s // 2 ** i for s in cfg.dataset.size_img]) for i in range(cfg.net.n_levels)])
-        self.vel2disps = nn.ModuleList([VectorIntegration([s // 2 ** i for s in cfg.dataset.size_img], int_steps=7) for i in range(cfg.net.n_levels)])
+
+        self.warpers = nn.ModuleList(
+            [SpatialTransformer([s // 2 ** i for s in cfg.dataset.size_img]) for i in range(cfg.net.n_levels)])
+        self.vel2disps = nn.ModuleList(
+            [VectorIntegration([s // 2 ** i for s in cfg.dataset.size_img], int_steps=7) for i in
+             range(cfg.net.n_levels)])
         self.downsamples = nn.ModuleList([nn.Upsample(scale_factor=2 ** (-i),
                                                       mode='trilinear' if cfg.dataset.dim == 3 else 'bilinear')
                                           for i in range(cfg.net.n_levels)])
-        
+
         self.conv_blks = nn.ModuleList()
         self.deconv_blks = nn.ModuleList()
-        
+
         for i in range(cfg.net.n_levels):
             in_channels_up = cfg.net.n_channels_init * 2 ** i
-            
+
             self.deconv_blks.append(
-                nn.Sequential(Deconv(in_channels_up, in_channels_up, 
+                nn.Sequential(Deconv(in_channels_up, in_channels_up,
                                      kernel_size=2, stride=2),
                               nn.PReLU())
             )
-            
+
             self.conv_blks.append(
-                nn.Sequential(Conv(in_channels_up * 2, in_channels_up, 
+                nn.Sequential(Conv(in_channels_up * 2, in_channels_up,
                                    kernel_size=3, padding='same'),
                               nn.PReLU(),
-                              Conv(in_channels_up, 
-                                   in_channels_up if i == 0 else in_channels_up // 2 , 
-                                   kernel_size=3, padding='same'), 
+                              Conv(in_channels_up,
+                                   in_channels_up if i == 0 else in_channels_up // 2,
+                                   kernel_size=3, padding='same'),
                               nn.PReLU()
                               )
             )
-            
-        self.out_conv = Conv(cfg.net.n_channels_init, cfg.dataset.dim, 
+
+        self.out_conv = Conv(cfg.net.n_channels_init, cfg.dataset.dim,
                              kernel_size=3, padding='same', bias=False)
         nn.init.zeros_(self.out_conv.weight)
-        
+
     def forward(self, out):
-        
+
         x = out[-1]
-        
+
         for i in range(self.cfg.net.n_levels - 1, -1, -1):
             x = torch.cat([self.deconv_blks[i](x), out[i]], dim=1)
             x = self.conv_blks[i](x)
-            
+
         y = self.out_conv(x)
-        
+
         if self.cfg.net.output_vel:
             self.vel = y
             if self.cfg.net.symmetric:
@@ -171,40 +158,39 @@ class LKDecoder(nn.Module):
                 self.disp = self.vel2disps[0](self.vel)
         else:
             self.disp = y
-                        
-        self.warped_moving_img = self.warpers[0](self.cfg.var.obj_model.moving_img, 
-                                                 self.disp) # [B, 1, ...]
-        
+
+        self.warped_moving_img = self.warpers[0](self.cfg.var.obj_model.moving_img,
+                                                 self.disp)  # [B, 1, ...]
+
         if self.cfg.net.output_vel and self.cfg.net.symmetric:
-            self.half_warped_fixed_img = self.warpers[0](self.cfg.var.obj_model.fixed_img, 
+            self.half_warped_fixed_img = self.warpers[0](self.cfg.var.obj_model.fixed_img,
                                                          self.half_inv_disp)
-            self.half_warped_moving_img = self.warpers[0](self.cfg.var.obj_model.moving_img, 
+            self.half_warped_moving_img = self.warpers[0](self.cfg.var.obj_model.moving_img,
                                                           self.half_disp)
-            
+
             warped_moving_mask = self.warpers[0](self.cfg.var.obj_model.moving_mask,
                                                  self.half_disp, interp_mode='nearest')
             overlap_mask = self.warpers[0].getOverlapMask(self.half_disp)
             mask = torch.logical_and(warped_moving_mask, overlap_mask)
-            warped_fixed_mask = self.warpers[0](self.cfg.var.obj_model.fixed_mask, 
-                                                self.half_inv_disp, 
+            warped_fixed_mask = self.warpers[0](self.cfg.var.obj_model.fixed_mask,
+                                                self.half_inv_disp,
                                                 interp_mode='nearest')
             mask = torch.logical_and(mask, warped_fixed_mask)
             overlap_mask = self.warpers[0].getOverlapMask(self.half_inv_disp)
             mask = torch.logical_and(mask, overlap_mask)
-        
+
         else:
-            mask = self.warpers[0](self.cfg.var.obj_model.moving_mask,  
+            mask = self.warpers[0](self.cfg.var.obj_model.moving_mask,
                                    self.disp, interp_mode='nearest')
             overlap_mask = self.warpers[0].getOverlapMask(self.disp)
             mask = torch.logical_and(mask, overlap_mask)
             mask = torch.logical_and(mask, self.cfg.var.obj_model.fixed_mask)
-            
+
         self.mask = mask
-        
+
         return self.disp
-    
-    
-    
+
+
 class LKUNet(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -237,7 +223,7 @@ class LKUNet(nn.Module):
         progress = 0
         for pp in list(self.parameters()):
             cand_params = new_params[progress: progress +
-                torch.tensor(pp.size()).prod()].view(pp.size())
+                                               torch.tensor(pp.size()).prod()].view(pp.size())
             progress += torch.tensor(pp.size()).prod()
             pp.data = cand_params
 

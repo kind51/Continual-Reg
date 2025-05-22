@@ -12,7 +12,7 @@ class OASIS3D:
         self.modalities = cfg.dataset.mods
 
         root_path = '/content/drive/MyDrive/OASIS'
-            
+
         if mode == 'train':
             training = True
             oasis_max_length = 100 #默认会限制最多加载 10000 个样本对。修改为200 减少训练耗时，同时保留多样性
@@ -28,7 +28,7 @@ class OASIS3D:
             data_search_path = f'{root_path}/test'
 
         self.dataset = DataProvider(data_search_path,
-                                    training=training, max_length=oasis_max_length, 
+                                    training=training, max_length=oasis_max_length,
                                     intensity_aug=cfg.dataset.intensity_aug & (self.mode == 'train'))
 
     def __len__(self):
@@ -85,9 +85,9 @@ class OASIS3D:
         # masks: [B, 2, H, W, D]
         data = {'imgs': imgs, 'masks': masks, 'segs': segs, 'names': names}
         # data = {'imgs': imgs, 'segs': segs}
-        
+
         if self.cfg.model.tre.label_center:
             keypoints = [get_label_center(seg) * 2 for seg in segs] # B * [2, n, 3
             data['keypoints'] = keypoints
-        
+
         return data
