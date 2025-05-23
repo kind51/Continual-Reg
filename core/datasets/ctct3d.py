@@ -13,6 +13,13 @@ class CTCT3D:
 
         root_path = '/content/drive/MyDrive/AbdomenCT'
 
+        if mode == 'train':
+            training = True
+            AbdomenCT_max_length = 100 #默认会限制最多加载 10000 个样本对。修改为100减少训练耗时，同时保留多样性
+        else:
+            training = False
+            AbdomenCT_max_length = 200
+
         if mode == 'val' or self.cfg.dataset.one_sample_only:
             data_search_path = f'{root_path}/valid'
             training = False
