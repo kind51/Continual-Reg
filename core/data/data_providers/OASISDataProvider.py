@@ -42,6 +42,7 @@ class DataProvider(Dataset):
         self.data_search_path = data_search_path
         self.training = training
         self.kwargs = kwargs
+        self.spacing = kwargs.pop('spacing',[2,2,2])
         self.mr_suffix = self.kwargs.pop('mr_suffix', '0000.nii.gz')
         self.mr_range = self.kwargs.pop('mr_range', [-np.inf, np.inf])
         self.image_prefix = self.kwargs.pop('image_prefix', 'images')
@@ -92,17 +93,21 @@ class DataProvider(Dataset):
     def __getitem__(self, item):
         pair_names = self.data_pair_names[item]
         name1, name2 = pair_names
-
-        img1, aff1, head1 = load_image_nii(name1)
-        img2, aff2, head2 = load_image_nii(name2)
+#重采样，显式传递参数
+        img1, aff1, head1 = load_image_nii(name1,spacing=self.spacing)
+        img2, aff2, head2 = load_image_nii(name2,spacing=self.spacing)
 
         img1 = np.clip(img1, a_min=None, a_max=np.percentile(img1, 99))
-        img1 = np.clip(img1, a_min=self.mr_range[0], a_max=self.mr_range[1])
+        #img1 = np.clip(img1, a_min=self.mr_range[0], a_max=self.mr_range[1])
         img2 = np.clip(img2, a_min=None, a_max=np.percentile(img2, 99))
-        img2 = np.clip(img2, a_min=self.mr_range[0], a_max=self.mr_range[1])
+        #img2 = np.clip(img2, a_min=self.mr_range[0], a_max=self.mr_range[1])
         if self.intensity_aug:
             img1 = randomIntensityFilter(img1)
             img2 = randomIntensityFilter(img2)
+
+        #线性归一化到【0,1】
+        img1 = (img1 - np.min(img1)) / (np.max(img1) - np.min(img1))
+        img2 = (img2 - np.min(img2)) / (np.max(img2) - np.min(img2))
 
         lab1 = load_image_nii(name1.replace(self.image_prefix, self.label_prefix))[0]
         lab2 = load_image_nii(name2.replace(self.image_prefix, self.label_prefix))[0]

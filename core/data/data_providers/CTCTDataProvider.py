@@ -38,6 +38,7 @@ class DataProvider(Dataset):
         self.data_search_path = data_search_path
         self.training = training
         self.kwargs = kwargs
+        self.spacing = kwargs.pop('spacing', [3, 3, 3])
         self.ct_suffix = self.kwargs.pop('ct_suffix', '0000.nii.gz')
         self.ct_range = self.kwargs.pop('ct_range', [-200, 300])
         self.image_prefix = self.kwargs.pop('image_prefix', 'images')
@@ -83,12 +84,14 @@ class DataProvider(Dataset):
         pair_names = self.data_pair_names[item]
         name1, name2 = pair_names
 
-        img1, aff1, head1 = load_image_nii(name1)
-        img2, aff2, head2 = load_image_nii(name2)
+        img1, aff1, head1 = load_image_nii(name1, spacing=self.spacing)
+        img2, aff2, head2 = load_image_nii(name2, spacing=self.spacing)
 
         img1 = np.clip(img1, a_min=self.ct_range[0], a_max=self.ct_range[1])
         img2 = np.clip(img2, a_min=self.ct_range[0], a_max=self.ct_range[1])
 
+        img1 = (img1 - np.min(img1)) / (np.max(img1) - np.min(img1))
+        img2 = (img2 - np.min(img2)) / (np.max(img2) - np.min(img2))
         if np.min(img1) < 0:
             img1 = img1 - np.min(img1)
         if np.min(img2) < 0:

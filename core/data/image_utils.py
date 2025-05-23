@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 import math
 from scipy import signal
 from einops import rearrange
-
+import SimpleITK as sitk
 
 def get_img_grid(n_imgs=1, size_img=(224, 224), padding_min=4, thickness=1, spacing=9):
     """Get images of white grids. 
@@ -73,12 +73,32 @@ def strsort(alist):
     return alist
 
 
-def load_image_nii(path, dtype=np.float32, scale=0, order=1):
-    img = nib.load(path)
-    image = np.asarray(img.get_fdata(), dtype)
-    if scale > 0:
-        image = rescale(image, 1 / (2**scale), mode='reflect', multichannel=False, anti_aliasing=False, order=order)
-    return image, img.affine, img.header
+def load_image_nii(path, dtype=np.float32, spacing=[2,2,2]):
+    """
+    加载NIfTI文件并重采样到指定spacing
+    参数:
+        path: 文件路径
+        dtype: 输出数据类型
+        spacing: 目标体素间距 (list or tuple)
+    返回:
+        image_array: numpy数组, shape [H, W, D]
+        affine: 仿射变换矩阵
+        header: NIfTI头信息
+    """
+    itk_image = sitk.ReadImage(path)
+
+    # 设置重采样参数
+    resampler = sitk.ResampleImageFilter()
+    resampler.SetOutputSpacing(list(spacing))  # 动态设置目标间距
+    resampler.SetInterpolator(sitk.sitkLinear)  # 线性插值
+    resampler.SetOutputDirection(itk_image.GetDirection())  # 保持方向
+    resampler.SetOutputOrigin(itk_image.GetOrigin())       # 保持原点
+    resampler.SetSize([int(sz) for sz in itk_image.GetSize()])  # 保持尺寸
+
+    resampled_image = resampler.Execute(itk_image)
+
+    image_array = sitk.GetArrayFromImage(resampled_image)
+    return image_array, resampled_image.GetAffine(), resampled_image.GetMetaDataDictionary()
 
 
 def save_image_nii(array, save_path, **kwargs):

@@ -24,12 +24,12 @@ class OASIS3D:
             data_search_path = f'{root_path}/valid'
         elif mode == 'train':
             data_search_path = f'{root_path}/train'
-        elif mode == 'test':
+        else:
             data_search_path = f'{root_path}/test'
 
         self.dataset = DataProvider(data_search_path,
                                     training=training, max_length=oasis_max_length,
-                                    intensity_aug=cfg.dataset.intensity_aug & (self.mode == 'train'))
+                                    intensity_aug=cfg.dataset.intensity_aug & (self.mode == 'train'),spacing=[2,2,2])
 
     def __len__(self):
         if self.mode == 'test' and self.cfg.exp.test.save_result.enable and self.cfg.exp.test.save_result.idx_sample >= 0:

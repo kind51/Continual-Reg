@@ -24,7 +24,7 @@ class CTCT3D:
             training = False
 
         self.dataset = DataProvider(data_search_path, training=training, 
-                                    intensity_aug=cfg.dataset.intensity_aug & (self.mode == 'train'))
+                                    intensity_aug=cfg.dataset.intensity_aug & (self.mode == 'train'),spacing=[3,3,3])
 
     def __len__(self):
         if self.mode == 'test' and self.cfg.exp.test.save_result.enable and self.cfg.exp.test.save_result.idx_sample >= 0:
