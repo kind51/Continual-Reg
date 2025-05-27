@@ -51,8 +51,7 @@ class DataProvider(Dataset):
         self.data_pair_names = self._find_data_names(self.data_search_path)
 
         self.data_pair_names = self._find_data_names(self.data_search_path)
-        print(f"CT_img_names count: {len(CT_img_names)}")  # 新增打印CT图像数量
-        print(f"pair_names count: {len(self.data_pair_names)}")
+
 
     def __len__(self):
         return len(self.data_pair_names)
@@ -67,6 +66,12 @@ class DataProvider(Dataset):
         :param data_search_path:
         :return:
         """
+        print(f"Checking path: {os.path.abspath(data_search_path)}")  # 打印绝对路径
+        if not os.path.exists(data_search_path):
+            raise FileNotFoundError(f"Path {data_search_path} does not exist!")
+
+        all_nii_names = strsort(glob.glob(os.path.join(data_search_path, '**/*.nii.gz'), recursive=True))
+        print("Raw found files:", all_nii_names)  # 打印所有找到的文件
         print(f"Searching data in: {data_search_path}")  # 添加路径打印
         all_nii_names = strsort(glob.glob(os.path.join(data_search_path, '**/*.nii.gz'), recursive=True))
         print(f"Found {len(all_nii_names)} nii files")  # 打印找到的文件数量
