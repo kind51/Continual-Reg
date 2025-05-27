@@ -6,7 +6,7 @@ exp:
     #path_save: /content/drive/MyDrive/Continual-Reg-save/
     train:
         batch_size: 4
-        n_epochs: [10, 240, 680, 64]
+        n_epochs: [10, 240]
         optimizer:
             name: adam
             lr: 1e-4
