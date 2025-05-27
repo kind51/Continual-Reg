@@ -10,12 +10,13 @@ import itertools
 import logging
 import os
 import random
+import SimpleITK as sitk
 import numpy as np
 import torch
-from scipy.ndimage import zoom
 from torch.utils.data import Dataset
 from core.data.image_utils import strsort, load_image_nii
 from core.data.intensity_augment import randomIntensityFilter
+from scipy.ndimage import zoom
 
 
 class DataProvider(Dataset):
@@ -43,7 +44,6 @@ class DataProvider(Dataset):
         self.data_search_path = data_search_path
         self.training = training
         self.kwargs = kwargs
-        self.spacing = kwargs.pop('spacing',[2,2,2])
         self.mr_suffix = self.kwargs.pop('mr_suffix', '0000.nii.gz')
         self.mr_range = self.kwargs.pop('mr_range', [-np.inf, np.inf])
         self.image_prefix = self.kwargs.pop('image_prefix', 'images')
@@ -80,6 +80,15 @@ class DataProvider(Dataset):
             name for name in all_img_names if self.mr_suffix in os.path.basename(name)
         ]
 
+        # 确保数据集按照训练(290)/验证(40)/测试(84)划分
+        # 假设文件名已经按某种方式排序，我们可以固定划分
+        if 'train' in data_search_path:
+            MR_img_names = MR_img_names[:290]  # 训练集
+        elif 'val' in data_search_path:
+            MR_img_names = MR_img_names[:40]  # 验证集
+        elif 'test' in data_search_path:
+            MR_img_names = MR_img_names[:84]  # 测试集
+
         if self.training:
             pair_names = list(itertools.product(MR_img_names, MR_img_names))
         else:
@@ -94,28 +103,35 @@ class DataProvider(Dataset):
     def __getitem__(self, item):
         pair_names = self.data_pair_names[item]
         name1, name2 = pair_names
-#重采样，显式传递参数
-        img1, aff1, head1 = load_image_nii(name1,spacing=self.spacing)
-        img2, aff2, head2 = load_image_nii(name2,spacing=self.spacing)
 
+        img1, aff1, head1 = load_image_nii(name1)
+        img2, aff2, head2 = load_image_nii(name2)
+
+        # 1. 重采样到2x2x2mm分辨率
+        img1 = self.resample_to_isotropic(img1, aff1)
+        img2 = self.resample_to_isotropic(img2, aff2)
+        # 2. 强度归一化
         img1 = np.clip(img1, a_min=None, a_max=np.percentile(img1, 99))
-        #img1 = np.clip(img1, a_min=self.mr_range[0], a_max=self.mr_range[1])
+        img1 = np.clip(img1, a_min=self.mr_range[0], a_max=self.mr_range[1])
         img2 = np.clip(img2, a_min=None, a_max=np.percentile(img2, 99))
-        #img2 = np.clip(img2, a_min=self.mr_range[0], a_max=self.mr_range[1])
+        img2 = np.clip(img2, a_min=self.mr_range[0], a_max=self.mr_range[1])
         if self.intensity_aug:
             img1 = randomIntensityFilter(img1)
             img2 = randomIntensityFilter(img2)
-
-        #线性归一化到【0,1】
-        img1 = (img1 - np.min(img1)) / (np.max(img1) - np.min(img1))
-        img2 = (img2 - np.min(img2)) / (np.max(img2) - np.min(img2))
 
         lab1 = load_image_nii(name1.replace(self.image_prefix, self.label_prefix))[0]
         lab2 = load_image_nii(name2.replace(self.image_prefix, self.label_prefix))[0]
 
         mask1 = load_image_nii(name1.replace(self.image_prefix, self.mask_prefix))[0]
         mask2 = load_image_nii(name2.replace(self.image_prefix, self.mask_prefix))[0]
-        # 原始 shape: [2, D, H, W]
+
+        # 对标签和掩码也进行重采样
+        lab1 = self.resample_to_isotropic(lab1, aff1, is_label=True)
+        lab2 = self.resample_to_isotropic(lab2, aff2, is_label=True)
+        mask1 = self.resample_to_isotropic(mask1, aff1, is_label=True)
+        mask2 = self.resample_to_isotropic(mask2, aff2, is_label=True)
+
+        # 原始 shape: [2, D, H, W] 统一尺寸到112x96x112
         images = np.stack([img1, img2]).transpose((0, 1, 3, 2))
         labels = np.stack([lab1, lab2]).transpose((0, 1, 3, 2))
         masks = np.stack([mask1, mask2]).transpose((0, 1, 3, 2))
@@ -126,16 +142,6 @@ class DataProvider(Dataset):
 
         ori_shape = np.asarray(images.shape[-self.dimension:])
         widths = (self.pad_shape - ori_shape) // 2
-        if np.any(self.pad_shape < ori_shape):
-            raise ValueError(f"pad_shape {self.pad_shape} 小于原始图像尺寸 {ori_shape}，无法pad")
-
-        def get_valid_pad(pad_shape, ori_shape):
-            pad = pad_shape - ori_shape
-            pad_left = np.maximum(pad // 2, 0)
-            pad_right = np.maximum(pad - pad_left, 0)
-            return pad_left, pad_right
-
-        pad_left, pad_right = get_valid_pad(self.pad_shape, ori_shape)
         images = np.pad(images,
                         pad_width=((0, 0),
                                    (widths[0], self.pad_shape[0] - widths[0] - ori_shape[0]),
@@ -158,7 +164,6 @@ class DataProvider(Dataset):
         names = [os.path.basename(name)[:-7] for name in pair_names]
         names = '_'.join(names)
 
-
         return {
             'images': images,
             'labels': labels,
@@ -168,35 +173,6 @@ class DataProvider(Dataset):
             'names': names,
         }
 
-    def resize_and_crop(self, volume, target_shape):
-        """缩放并中心裁剪到目标形状"""
-        # 确保 target_shape 是 numpy 数组（如果是元组/列表）
-        target_shape = np.asarray(target_shape)
-        assert len(target_shape) == self.dimension, "目标形状维度不匹配"
-        # 1. 计算缩放因子
-        spatial_dims = volume.shape[-self.dimension:]
-        zoom_factors = [t / s for t, s in zip(target_shape, spatial_dims)]
-        min_zoom = min(zoom_factors)  # 保持宽高比
-        zoom_factors = [min_zoom] * self.dimension
-
-        # 2. 应用缩放（线性插值）
-        scaled = zoom(volume,
-                      zoom=[1] * (volume.ndim - self.dimension) + zoom_factors,
-                      order=1)
-
-        # 3. 中心裁剪
-        crop_slices = []
-        for i in range(-self.dimension, 0):
-            start = max((scaled.shape[i] - target_shape[i]) // 2, 0)
-            end = start + target_shape[i]
-            crop_slices.append(slice(start, end))
-
-        # 4. 执行裁剪
-        if volume.ndim == self.dimension + 1:  # 含通道维度 [C, D, H, W]
-            return scaled[:, crop_slices[0], crop_slices[1], crop_slices[2]]
-        else:  # 无通道维度 [D, H, W]
-            return scaled[crop_slices[0], crop_slices[1], crop_slices[2]]
-
     def data_collate_fn(self, batch):
         AF = [data.pop('affines') for data in batch]
         HE = [data.pop('headers') for data in batch]
@@ -205,3 +181,56 @@ class DataProvider(Dataset):
         batch_tensor['headers'] = HE
 
         return batch_tensor
+
+    def resample_to_isotropic(self, volume, affine, is_label=False):
+        """
+        将体积重采样到2x2x2mm各向同性分辨率
+        :param volume: 输入体积数据
+        :param affine: 仿射矩阵
+        :param is_label: 是否为标签数据(决定插值方式)
+        :return: 重采样后的体积
+        """
+        # 获取当前体素尺寸(mm)
+        voxel_dims = np.sqrt(np.sum(affine[:3, :3] ** 2, axis=0))
+
+        # 计算重采样比例
+        zoom_factors = voxel_dims / 2.0  # 目标分辨率2x2x2mm
+
+        # 执行重采样
+        order = 0 if is_label else 3  # 标签使用最近邻插值，图像使用3阶样条插值
+        resampled = zoom(volume, zoom=zoom_factors, order=order)
+
+        return resampled
+
+    @staticmethod
+    def resize_and_crop(volume, target_shape):
+        """
+        调整体积到目标形状，保持比例的同时进行中心裁剪
+        :param volume: 输入体积
+        :param target_shape: 目标形状(112,96,112)
+        :return: 调整后的体积
+        """
+        # 1. 计算缩放比例
+        zoom_factors = [t / s for t, s in zip(target_shape, volume.shape[-3:])]
+
+        # 2. 执行缩放(保持长宽比)
+        min_zoom = min(zoom_factors)
+        zoom_factors = [min_zoom] * 3
+
+        # 3. 执行缩放
+        order = 1  # 线性插值
+        if volume.ndim == 4:  # 如果是多通道数据
+            scaled = zoom(volume, zoom=[1] * (volume.ndim - 3) + zoom_factors, order=order)
+        else:
+            scaled = zoom(volume, zoom=zoom_factors, order=order)
+
+        # 4. 中心裁剪到目标尺寸
+        crop_slices = []
+        for i in range(3):
+            start = max((scaled.shape[i] - target_shape[i]) // 2, 0)
+            end = start + target_shape[i]
+            crop_slices.append(slice(start, end))
+        if volume.ndim == 4:
+            return scaled[:, crop_slices[0], crop_slices[1], crop_slices[2]]
+        else:
+            return scaled[crop_slices[0], crop_slices[1], crop_slices[2]]
