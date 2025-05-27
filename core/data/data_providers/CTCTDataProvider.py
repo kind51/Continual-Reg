@@ -50,6 +50,10 @@ class DataProvider(Dataset):
 
         self.data_pair_names = self._find_data_names(self.data_search_path)
 
+        self.data_pair_names = self._find_data_names(self.data_search_path)
+        print(f"CT_img_names count: {len(CT_img_names)}")  # 新增打印CT图像数量
+        print(f"pair_names count: {len(self.data_pair_names)}")
+
     def __len__(self):
         return len(self.data_pair_names)
 
@@ -63,6 +67,9 @@ class DataProvider(Dataset):
         :param data_search_path:
         :return:
         """
+        print(f"Searching data in: {data_search_path}")  # 添加路径打印
+        all_nii_names = strsort(glob.glob(os.path.join(data_search_path, '**/*.nii.gz'), recursive=True))
+        print(f"Found {len(all_nii_names)} nii files")  # 打印找到的文件数量
         all_nii_names = strsort(glob.glob(os.path.join(data_search_path,
                                                        '**/*.nii.gz'),
                                           recursive=True))
@@ -72,12 +79,13 @@ class DataProvider(Dataset):
         CT_img_names = [
             name for name in all_img_names if self.ct_suffix in os.path.basename(name)
         ]
-
+        print(f"Filtered {len(CT_img_names)} CT images")  # 添加过滤后数量打印
+        print("Sample CT paths:", CT_img_names[:3])  # 打印前3个样本路径
         if self.training:
             pair_names = list(itertools.product(CT_img_names, CT_img_names))
         else:
             pair_names = list(itertools.permutations(CT_img_names, r=2))
-
+        print(f"Generated {len(pair_names)} pairs")  # 添加数据对数量打印
         return pair_names
 
     def __getitem__(self, item):
