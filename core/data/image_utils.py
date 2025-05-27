@@ -72,8 +72,13 @@ def strsort(alist):
     alist.sort(key=natural_keys)
     return alist
 
+def get_affine_matrix(direction, spacing, origin):
+    affine = np.eye(4)
+    affine[:3, :3] = np.array(direction).reshape(3, 3) * np.array(spacing).reshape(1, 3)
+    affine[:3, 3] = origin
+    return affine
 
-def load_image_nii(path, dtype=np.float32, spacing=[2,2,2]):
+def load_image_nii(path, dtype=np.float32, spacing=[2, 2, 2]):
     """
     加载NIfTI文件并重采样到指定spacing
     参数:
@@ -89,16 +94,22 @@ def load_image_nii(path, dtype=np.float32, spacing=[2,2,2]):
 
     # 设置重采样参数
     resampler = sitk.ResampleImageFilter()
-    resampler.SetOutputSpacing(list(spacing))  # 动态设置目标间距
-    resampler.SetInterpolator(sitk.sitkLinear)  # 线性插值
-    resampler.SetOutputDirection(itk_image.GetDirection())  # 保持方向
-    resampler.SetOutputOrigin(itk_image.GetOrigin())       # 保持原点
-    resampler.SetSize([int(sz) for sz in itk_image.GetSize()])  # 保持尺寸
+    resampler.SetOutputSpacing(list(spacing))
+    resampler.SetInterpolator(sitk.sitkLinear)
+    resampler.SetOutputDirection(itk_image.GetDirection())
+    resampler.SetOutputOrigin(itk_image.GetOrigin())
+    resampler.SetSize([int(sz) for sz in itk_image.GetSize()])
 
     resampled_image = resampler.Execute(itk_image)
 
-    image_array = sitk.GetArrayFromImage(resampled_image)
-    return image_array, resampled_image.GetAffine(), resampled_image.GetMetaDataDictionary()
+    image_array = sitk.GetArrayFromImage(resampled_image).astype(dtype)
+
+    direction = resampled_image.GetDirection()
+    spacing = resampled_image.GetSpacing()
+    origin = resampled_image.GetOrigin()
+    affine = get_affine_matrix(direction, spacing, origin)
+
+    return image_array, affine, resampled_image.GetMetaDataDictionary()
 
 
 def save_image_nii(array, save_path, **kwargs):
