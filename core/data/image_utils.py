@@ -109,7 +109,8 @@ def load_image_nii(path, dtype=np.float32, spacing=[2, 2, 2]):
     origin = resampled_image.GetOrigin()
     affine = get_affine_matrix(direction, spacing, origin)
 
-    return image_array, affine, resampled_image.GetMetaDataDictionary()
+    meta_dict = {k: resampled_image.GetMetaData(k) for k in resampled_image.GetMetaDataKeys()}
+    return image_array, affine, meta_dict
 
 
 def save_image_nii(array, save_path, **kwargs):
