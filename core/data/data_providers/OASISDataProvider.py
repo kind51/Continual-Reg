@@ -121,6 +121,16 @@ class DataProvider(Dataset):
 
         ori_shape = np.asarray(images.shape[-self.dimension:])
         widths = (self.pad_shape - ori_shape) // 2
+        if np.any(self.pad_shape < ori_shape):
+            raise ValueError(f"pad_shape {self.pad_shape} 小于原始图像尺寸 {ori_shape}，无法pad")
+
+        def get_valid_pad(pad_shape, ori_shape):
+            pad = pad_shape - ori_shape
+            pad_left = np.maximum(pad // 2, 0)
+            pad_right = np.maximum(pad - pad_left, 0)
+            return pad_left, pad_right
+
+        pad_left, pad_right = get_valid_pad(self.pad_shape, ori_shape)
         images = np.pad(images,
                         pad_width=((0, 0),
                                    (widths[0], self.pad_shape[0] - widths[0] - ori_shape[0]),
