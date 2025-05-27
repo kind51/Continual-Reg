@@ -12,6 +12,7 @@ import os
 import random
 import numpy as np
 import torch
+from scipy.ndimage import zoom
 from torch.utils.data import Dataset
 from core.data.image_utils import strsort, load_image_nii
 from core.data.intensity_augment import randomIntensityFilter
@@ -114,10 +115,14 @@ class DataProvider(Dataset):
 
         mask1 = load_image_nii(name1.replace(self.image_prefix, self.mask_prefix))[0]
         mask2 = load_image_nii(name2.replace(self.image_prefix, self.mask_prefix))[0]
-
-        images = np.stack([img1, img2]).transpose((0, 1, 3, 2))  # [2, *vol_shape]
-        labels = np.stack([lab1, lab2]).transpose((0, 1, 3, 2))  # [2, *vol_shape]
+        # 原始 shape: [2, D, H, W]
+        images = np.stack([img1, img2]).transpose((0, 1, 3, 2))
+        labels = np.stack([lab1, lab2]).transpose((0, 1, 3, 2))
         masks = np.stack([mask1, mask2]).transpose((0, 1, 3, 2))
+        
+        images = self.resize_and_crop(images, self.pad_shape)
+        labels = self.resize_and_crop(labels, self.pad_shape)
+        masks = self.resize_and_crop(masks, self.pad_shape)
 
         ori_shape = np.asarray(images.shape[-self.dimension:])
         widths = (self.pad_shape - ori_shape) // 2
@@ -152,6 +157,26 @@ class DataProvider(Dataset):
 
         names = [os.path.basename(name)[:-7] for name in pair_names]
         names = '_'.join(names)
+
+        def resize_and_crop(volume, target_shape):
+            # 1. 缩放比例
+            zoom_factors = [t / s for t, s in zip(target_shape, volume.shape[-3:])]
+            min_zoom = min(zoom_factors)  # 只缩放到最小缩放因子，避免过大
+            zoom_factors = [min_zoom] * 3
+
+            # 2. 缩放（3D 插值）
+            scaled = zoom(volume, zoom=[1] * (volume.ndim - 3) + zoom_factors, order=1)
+
+            # 3. center crop
+            crop_slices = []
+            for i in range(-3, 0):
+                start = max((scaled.shape[i] - target_shape[i]) // 2, 0)
+                end = start + target_shape[i]
+                crop_slices.append(slice(start, end))
+            if volume.ndim == 4:
+                return scaled[:, crop_slices[0], crop_slices[1], crop_slices[2]]
+            else:
+                return scaled[crop_slices[0], crop_slices[1], crop_slices[2]]
 
         return {
             'images': images,
