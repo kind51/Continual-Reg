@@ -167,24 +167,34 @@ class DataProvider(Dataset):
             'headers': [head1, head2],
             'names': names,
         }
-    def resize_and_crop(volume, target_shape):
-            # 1. 缩放比例
-        zoom_factors = [t / s for t, s in zip(target_shape, volume.shape[-3:])]
-        min_zoom = min(zoom_factors)  # 只缩放到最小缩放因子，避免过大
-        zoom_factors = [min_zoom] * 3
 
-            # 2. 缩放（3D 插值）
-        scaled = zoom(volume, zoom=[1] * (volume.ndim - 3) + zoom_factors, order=1)
+    def resize_and_crop(self, volume, target_shape):
+        """缩放并中心裁剪到目标形状"""
+        # 确保 target_shape 是 numpy 数组（如果是元组/列表）
+        target_shape = np.asarray(target_shape)
+        assert len(target_shape) == self.dimension, "目标形状维度不匹配"
+        # 1. 计算缩放因子
+        spatial_dims = volume.shape[-self.dimension:]
+        zoom_factors = [t / s for t, s in zip(target_shape, spatial_dims)]
+        min_zoom = min(zoom_factors)  # 保持宽高比
+        zoom_factors = [min_zoom] * self.dimension
 
-            # 3. center crop
+        # 2. 应用缩放（线性插值）
+        scaled = zoom(volume,
+                      zoom=[1] * (volume.ndim - self.dimension) + zoom_factors,
+                      order=1)
+
+        # 3. 中心裁剪
         crop_slices = []
-        for i in range(-3, 0):
+        for i in range(-self.dimension, 0):
             start = max((scaled.shape[i] - target_shape[i]) // 2, 0)
             end = start + target_shape[i]
             crop_slices.append(slice(start, end))
-        if volume.ndim == 4:
+
+        # 4. 执行裁剪
+        if volume.ndim == self.dimension + 1:  # 含通道维度 [C, D, H, W]
             return scaled[:, crop_slices[0], crop_slices[1], crop_slices[2]]
-        else:
+        else:  # 无通道维度 [D, H, W]
             return scaled[crop_slices[0], crop_slices[1], crop_slices[2]]
 
     def data_collate_fn(self, batch):
