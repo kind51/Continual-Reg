@@ -81,22 +81,21 @@ class DataProvider(Dataset):
         ]
 
         # 确保数据集按照训练(290)/验证(40)/测试(84)划分
-        # 假设文件名已经按某种方式排序，我们可以固定划分
         if 'train' in data_search_path:
-            MR_img_names = MR_img_names[:290]  # 训练集
+            MR_img_names = MR_img_names[:290]
         elif 'val' in data_search_path:
-            MR_img_names = MR_img_names[:40]  # 验证集
+            MR_img_names = MR_img_names[:40]
         elif 'test' in data_search_path:
-            MR_img_names = MR_img_names[:84]  # 测试集
+            MR_img_names = MR_img_names[:84]
 
         if self.training:
-            pair_names = list(itertools.product(MR_img_names, MR_img_names))
+            # 去除(A, A)，只保留有效配准对
+            pair_names = [(a, b) for a in MR_img_names for b in MR_img_names if a != b]
+            # 固定采样顺序，避免每次随机不同
+            random.seed(42)
+            pair_names = random.sample(pair_names, min(len(pair_names), self.max_length))
         else:
             pair_names = list(itertools.permutations(MR_img_names, 2))
-
-        if len(pair_names) > self.max_length:
-            random.seed(42)
-            pair_names = random.sample(pair_names, self.max_length)
 
         return pair_names
 

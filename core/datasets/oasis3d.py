@@ -24,7 +24,7 @@ class OASIS3D:
             data_search_path = f'{root_path}/valid'
         elif mode == 'train':
             data_search_path = f'{root_path}/train'
-        else:
+        elif mode == 'test':
             data_search_path = f'{root_path}/test'
 
         self.dataset = DataProvider(data_search_path,
