@@ -12,6 +12,7 @@ import os
 # import random
 import numpy as np
 import torch
+import SimpleITK as sitk  # 引入 SimpleITK 库
 from torch.utils.data import Dataset
 from core.data.image_utils import strsort, load_image_nii
 from core.data.intensity_augment import randomIntensityFilter
@@ -38,7 +39,6 @@ class DataProvider(Dataset):
         self.data_search_path = data_search_path
         self.training = training
         self.kwargs = kwargs
-        self.spacing = kwargs.pop('spacing', [3, 3, 3])
         self.ct_suffix = self.kwargs.pop('ct_suffix', '0000.nii.gz')
         self.ct_range = self.kwargs.pop('ct_range', [-200, 300])
         self.image_prefix = self.kwargs.pop('image_prefix', 'images')
@@ -49,9 +49,6 @@ class DataProvider(Dataset):
                                      dtype=np.int32)
 
         self.data_pair_names = self._find_data_names(self.data_search_path)
-
-        self.data_pair_names = self._find_data_names(self.data_search_path)
-
 
     def __len__(self):
         return len(self.data_pair_names)
@@ -75,24 +72,52 @@ class DataProvider(Dataset):
         CT_img_names = [
             name for name in all_img_names if self.ct_suffix in os.path.basename(name)
         ]
+
         if self.training:
             pair_names = list(itertools.product(CT_img_names, CT_img_names))
         else:
             pair_names = list(itertools.permutations(CT_img_names, r=2))
+
         return pair_names
+
+    def resample_image(self, image, new_spacing):
+        """
+        重采样图像到指定的间距
+        :param image: SimpleITK 图像对象
+        :param new_spacing: 新的图像间距
+        :return: 重采样后的 SimpleITK 图像对象
+        """
+        original_spacing = image.GetSpacing()
+        original_size = image.GetSize()
+        new_size = [int(round(osz * ospc / nspc)) for osz, ospc, nspc in
+                    zip(original_size, original_spacing, new_spacing)]
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetOutputSpacing(new_spacing)
+        resampler.SetSize(new_size)
+        resampler.SetOutputDirection(image.GetDirection())
+        resampler.SetOutputOrigin(image.GetOrigin())
+        resampler.SetTransform(sitk.Transform())
+        resampler.SetDefaultPixelValue(image.GetPixelIDValue())
+        resampler.SetInterpolator(sitk.sitkBSpline)
+        return resampler.Execute(image)
 
     def __getitem__(self, item):
         pair_names = self.data_pair_names[item]
         name1, name2 = pair_names
 
-        img1, aff1, head1 = load_image_nii(name1, spacing=self.spacing)
-        img2, aff2, head2 = load_image_nii(name2, spacing=self.spacing)
+        img1_itk = sitk.ReadImage(name1)
+        img2_itk = sitk.ReadImage(name2)
+
+        new_spacing = [3, 3, 3]  # 固定为 [3, 3, 3] 的间距
+        img1_itk = self.resample_image(img1_itk, new_spacing)
+        img2_itk = self.resample_image(img2_itk, new_spacing)
+
+        img1 = sitk.GetArrayFromImage(img1_itk)
+        img2 = sitk.GetArrayFromImage(img2_itk)
 
         img1 = np.clip(img1, a_min=self.ct_range[0], a_max=self.ct_range[1])
         img2 = np.clip(img2, a_min=self.ct_range[0], a_max=self.ct_range[1])
 
-        img1 = (img1 - np.min(img1)) / (np.max(img1) - np.min(img1))
-        img2 = (img2 - np.min(img2)) / (np.max(img2) - np.min(img2))
         if np.min(img1) < 0:
             img1 = img1 - np.min(img1)
         if np.min(img2) < 0:
@@ -122,8 +147,8 @@ class DataProvider(Dataset):
         return {
             'images': images,
             'labels': labels,
-            'affines': [aff1, aff2],
-            'headers': [head1, head2],
+            'affines': [img1_itk.GetDirection(), img2_itk.GetDirection()],
+            'headers': [img1_itk.GetMetaDataDictionary(), img2_itk.GetMetaDataDictionary()],
             'names': names,
         }
 
