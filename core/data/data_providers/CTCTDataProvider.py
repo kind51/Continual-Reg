@@ -6,6 +6,7 @@ import glob
 import itertools
 import numpy as np
 import torch
+import os
 import SimpleITK as sitk
 from torch.utils.data import Dataset
 from core.data.image_utils import strsort, load_image_nii  # 假设存在该工具函数
