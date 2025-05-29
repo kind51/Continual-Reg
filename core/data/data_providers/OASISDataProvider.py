@@ -1,139 +1,235 @@
 # -*- coding: utf-8 -*-
 """
-OASIS 数据集数据提供器（含重采样）
+
+__author__ == Xinzhe Luo
+__version__ == 0.1
 """
+
 import glob
 import itertools
+import logging
+import os
+import random
+import SimpleITK as sitk
 import numpy as np
 import torch
-import os
-import SimpleITK as sitk
 from torch.utils.data import Dataset
-from core.data.image_utils import strsort, load_image_nii  # 假设存在该工具函数
+from core.data.image_utils import strsort, load_image_nii
 from core.data.intensity_augment import randomIntensityFilter
+from scipy.ndimage import zoom
 
 
 class DataProvider(Dataset):
+    """
+    Construct data provider for Task4 OASIS dataset.
+    Validation dataset pattern:
+    |--valid
+    |  |--images
+    |  |  |--OASIS_0291_0000.nii.gz
+    |  |  |--OASIS_0292_0000.nii.gz
+    |  |  |--...
+    |  |--labels
+    |  |  |--OASIS_0291_0000.nii.gz
+    |  |  |--OASIS_0292_0000.nii.gz
+    |  |  |--...
+    |  |--masks
+    |  |  |--OASIS_0291_0000.nii.gz
+    |  |  |--OASIS_0292_0000.nii.gz
+    |  |  |--...
+
+    """
     dimension = 3
 
     def __init__(self, data_search_path, training=True, **kwargs):
         self.data_search_path = data_search_path
         self.training = training
         self.kwargs = kwargs
-        self.mr_suffix = kwargs.pop('mr_suffix', '0000.nii.gz')
-        self.mr_range = kwargs.pop('mr_range', [-np.inf, np.inf])
-        self.image_prefix = kwargs.pop('image_prefix', 'images')
-        self.label_prefix = kwargs.pop('label_prefix', 'labels')
-        self.mask_prefix = kwargs.pop('mask_prefix', 'masks')
-        self.intensity_aug = kwargs.pop('intensity_aug', False)
-        self.pad_shape = np.asarray(kwargs.pop('crop_shape', (112, 96, 112)), dtype=np.int32)
-        self.max_length = kwargs.pop('max_length', 10000)  # 控制数据集大小
+        self.mr_suffix = self.kwargs.pop('mr_suffix', '0000.nii.gz')
+        self.mr_range = self.kwargs.pop('mr_range', [-np.inf, np.inf])
+        self.image_prefix = self.kwargs.pop('image_prefix', 'images')
+        self.label_prefix = self.kwargs.pop('label_prefix', 'labels')
+        self.mask_prefix = self.kwargs.pop('mask_prefix', 'masks')
+        self.intensity_aug = self.kwargs.pop('intensity_aug', False)
+        self.equalize_hist = self.kwargs.pop('equalize_hist', False)
+        self.pad_shape = np.asarray(self.kwargs.pop('crop_shape', (112, 96, 112)),
+                                    dtype=np.int32)
+        self.max_length = self.kwargs.pop('max_length', 10000)
 
-        # 查找所有图像对
-        self.data_pair_names = self._find_data_names(data_search_path)
+        self.data_pair_names = self._find_data_names(self.data_search_path)
 
     def __len__(self):
         return min(len(self.data_pair_names), self.max_length)
 
-    def _find_data_names(self, data_search_path):
-        """获取所有图像对路径"""
-        all_nii_names = strsort(glob.glob(os.path.join(data_search_path, '**/*.nii.gz'), recursive=True))
-        all_img_names = [name for name in all_nii_names if self.image_prefix in name]
-        mr_img_names = [name for name in all_img_names if self.mr_suffix in os.path.basename(name)]
+    def get_image_name(self, index):
+        return self.data_pair_names[index]
 
-        # 生成训练/验证对（训练集为笛卡尔积，验证集为排列）
+    def _find_data_names(self, data_search_path):
+        """
+        Get pairs of image names.
+
+        :param data_search_path:
+        :return:
+        """
+        all_nii_names = strsort(glob.glob(os.path.join(data_search_path,
+                                                       '**/*.nii.gz'),
+                                          recursive=True))
+        all_nii_names = [os.path.normpath(name) for name in all_nii_names]
+        all_img_names = [name for name in all_nii_names if name.split(os.path.sep)[-2] == self.image_prefix]
+
+        MR_img_names = [
+            name for name in all_img_names if self.mr_suffix in os.path.basename(name)
+        ]
+
+        # 确保数据集按照训练(290)/验证(40)/测试(84)划分
+        if 'train' in data_search_path:
+            MR_img_names = MR_img_names[:290]
+        elif 'val' in data_search_path:
+            MR_img_names = MR_img_names[:40]
+        elif 'test' in data_search_path:
+            MR_img_names = MR_img_names[:84]
+
         if self.training:
-            pair_names = list(itertools.product(mr_img_names, mr_img_names))
+            # 去除(A, A)，只保留有效配准对
+            pair_names = [(a, b) for a in MR_img_names for b in MR_img_names if a != b]
+            # 固定采样顺序，避免每次随机不同
+            random.seed(42)
+            pair_names = random.sample(pair_names, min(len(pair_names), self.max_length))
         else:
-            pair_names = list(itertools.permutations(mr_img_names, 2))
+            pair_names = list(itertools.permutations(MR_img_names, 2))
+
         return pair_names
 
-    def resample_image(self, image_path, new_spacing):
-        """重采样图像到指定间距"""
-        img_itk = sitk.ReadImage(image_path)
-        original_spacing = img_itk.GetSpacing()
-        original_size = img_itk.GetSize()
-
-        # 计算新尺寸
-        new_size = [int(round(osz * ospc / nspc)) for osz, ospc, nspc in
-                    zip(original_size, original_spacing, new_spacing)]
-
-        # 重采样设置
-        resampler = sitk.ResampleImageFilter()
-        resampler.SetOutputSpacing(new_spacing)
-        resampler.SetSize(new_size)
-        resampler.SetOutputDirection(img_itk.GetDirection())
-        resampler.SetOutputOrigin(img_itk.GetOrigin())
-        resampler.SetTransform(sitk.Transform())
-        resampler.SetDefaultPixelValue(img_itk.GetPixelIDValue())
-        resampler.SetInterpolator(sitk.sitkBSpline)  # 插值方式
-        return resampler.Execute(img_itk), img_itk.GetDirection()  # 返回重采样后的图像和仿射矩阵
-
     def __getitem__(self, item):
-        name1, name2 = self.data_pair_names[item]
+        pair_names = self.data_pair_names[item]
+        name1, name2 = pair_names
 
-        # OASIS 重采样到 2x2x2 mm
-        new_spacing = [2, 2, 2] if self.training else [2, 2, 2]  # 训练/验证均用 2x2x2
-        img1_itk, aff1 = self.resample_image(name1, new_spacing)
-        img2_itk, aff2 = self.resample_image(name2, new_spacing)
+        img1, aff1, head1 = load_image_nii(name1)
+        img2, aff2, head2 = load_image_nii(name2)
 
-        # 转换为 numpy 数组
-        img1 = sitk.GetArrayFromImage(img1_itk)
-        img2 = sitk.GetArrayFromImage(img2_itk)
-
-        # 强度裁剪（MR 通常不需要固定范围，使用百分位裁剪）
-        img1 = np.clip(img1, a_min=np.percentile(img1, 1), a_max=np.percentile(img1, 99))
-        img2 = np.clip(img2, a_min=np.percentile(img2, 1), a_max=np.percentile(img2, 99))
-
-        # 强度增强（可选）
+        # 1. 重采样到2x2x2mm分辨率
+        img1 = self.resample_to_isotropic(img1, aff1)
+        img2 = self.resample_to_isotropic(img2, aff2)
+        # 2. 强度归一化
+        img1 = np.clip(img1, a_min=None, a_max=np.percentile(img1, 99))
+        img1 = np.clip(img1, a_min=self.mr_range[0], a_max=self.mr_range[1])
+        img2 = np.clip(img2, a_min=None, a_max=np.percentile(img2, 99))
+        img2 = np.clip(img2, a_min=self.mr_range[0], a_max=self.mr_range[1])
         if self.intensity_aug:
             img1 = randomIntensityFilter(img1)
             img2 = randomIntensityFilter(img2)
 
-        # 加载标签和掩码
         lab1 = load_image_nii(name1.replace(self.image_prefix, self.label_prefix))[0]
         lab2 = load_image_nii(name2.replace(self.image_prefix, self.label_prefix))[0]
+
         mask1 = load_image_nii(name1.replace(self.image_prefix, self.mask_prefix))[0]
         mask2 = load_image_nii(name2.replace(self.image_prefix, self.mask_prefix))[0]
 
-        # 调整维度顺序：[C, D, H, W]
-        images = np.stack([img1, img2]).transpose((0, 3, 1, 2))  # [2, D, H, W]
-        labels = np.stack([lab1, lab2]).transpose((0, 3, 1, 2))
-        masks = np.stack([mask1, mask2]).transpose((0, 3, 1, 2))
+        # 对标签和掩码也进行重采样
+        lab1 = self.resample_to_isotropic(lab1, aff1, is_label=True)
+        lab2 = self.resample_to_isotropic(lab2, aff2, is_label=True)
+        mask1 = self.resample_to_isotropic(mask1, aff1, is_label=True)
+        mask2 = self.resample_to_isotropic(mask2, aff2, is_label=True)
 
-        # 填充到固定尺寸 (112, 96, 112)
-        current_shape = np.array(images.shape[1:])  # [D, H, W]
-        pad_width = [(0, 0)] + [((self.pad_shape[i] - current_shape[i]) // 2,
-                                 self.pad_shape[i] - current_shape[i] - (self.pad_shape[i] - current_shape[i]) // 2)
-                                for i in range(3)]
-        images = np.pad(images, pad_width, mode='constant')
-        labels = np.pad(labels, pad_width, mode='constant')
-        masks = np.pad(masks, pad_width, mode='constant')
+        # 原始 shape: [2, D, H, W] 统一尺寸到112x96x112
+        images = np.stack([img1, img2]).transpose((0, 1, 3, 2))
+        labels = np.stack([lab1, lab2]).transpose((0, 1, 3, 2))
+        masks = np.stack([mask1, mask2]).transpose((0, 1, 3, 2))
 
-        # ====================== 修正元数据获取 ======================
-        # SimpleITK 正确获取元数据的方式：遍历键值对
-        head1 = {key: img1_itk.GetMetaData(key) for key in img1_itk.GetMetaDataKeys()}
-        head2 = {key: img2_itk.GetMetaData(key) for key in img2_itk.GetMetaDataKeys()}
-        # ==========================================================
+        images = self.resize_and_crop(images, self.pad_shape)
+        labels = self.resize_and_crop(labels, self.pad_shape)
+        masks = self.resize_and_crop(masks, self.pad_shape)
+
+        ori_shape = np.asarray(images.shape[-self.dimension:])
+        widths = (self.pad_shape - ori_shape) // 2
+        images = np.pad(images,
+                        pad_width=((0, 0),
+                                   (widths[0], self.pad_shape[0] - widths[0] - ori_shape[0]),
+                                   (widths[1], self.pad_shape[1] - widths[1] - ori_shape[1]),
+                                   (widths[2], self.pad_shape[2] - widths[2] - ori_shape[2]))
+                        )
+        labels = np.pad(labels,
+                        pad_width=((0, 0),
+                                   (widths[0], self.pad_shape[0] - widths[0] - ori_shape[0]),
+                                   (widths[1], self.pad_shape[1] - widths[1] - ori_shape[1]),
+                                   (widths[2], self.pad_shape[2] - widths[2] - ori_shape[2]))
+                        )
+        masks = np.pad(masks,
+                       pad_width=((0, 0),
+                                  (widths[0], self.pad_shape[0] - widths[0] - ori_shape[0]),
+                                  (widths[1], self.pad_shape[1] - widths[1] - ori_shape[1]),
+                                  (widths[2], self.pad_shape[2] - widths[2] - ori_shape[2]))
+                       )
+
+        names = [os.path.basename(name)[:-7] for name in pair_names]
+        names = '_'.join(names)
 
         return {
-            'images': images.astype(np.float32),
-            'labels': labels.astype(np.float32),
-            'masks': masks.astype(np.float32),
+            'images': images,
+            'labels': labels,
+            'masks': masks,
             'affines': [aff1, aff2],
-            'headers': [head1, head2],  # 使用字典存储元数据
-            'names': f"{os.path.basename(name1)[:-7]}_{os.path.basename(name2)[:-7]}"
+            'headers': [head1, head2],
+            'names': names,
         }
 
     def data_collate_fn(self, batch):
-        """数据整理函数"""
-        affines = [data.pop('affines') for data in batch]
-        headers = [data.pop('headers') for data in batch]
-        batch_tensor = {
-            k: torch.from_numpy(np.stack([data[k] for data in batch])).float()
-            for k in batch[0].keys() if k not in ['affines', 'headers', 'names']
-        }
-        batch_tensor['affines'] = affines
-        batch_tensor['headers'] = headers
-        batch_tensor['names'] = [data['names'] for data in batch]
+        AF = [data.pop('affines') for data in batch]
+        HE = [data.pop('headers') for data in batch]
+        batch_tensor = dict([(k, torch.stack([torch.from_numpy(data[k]) for data in batch])) for k in batch[0].keys()])
+        batch_tensor['affines'] = AF
+        batch_tensor['headers'] = HE
+
         return batch_tensor
+
+    def resample_to_isotropic(self, volume, affine, is_label=False):
+        """
+        将体积重采样到2x2x2mm各向同性分辨率
+        :param volume: 输入体积数据
+        :param affine: 仿射矩阵
+        :param is_label: 是否为标签数据(决定插值方式)
+        :return: 重采样后的体积
+        """
+        # 获取当前体素尺寸(mm)
+        voxel_dims = np.sqrt(np.sum(affine[:3, :3] ** 2, axis=0))
+
+        # 计算重采样比例
+        zoom_factors = voxel_dims / 2.0  # 目标分辨率2x2x2mm
+
+        # 执行重采样
+        order = 0 if is_label else 3  # 标签使用最近邻插值，图像使用3阶样条插值
+        resampled = zoom(volume, zoom=zoom_factors, order=order)
+
+        return resampled
+
+    @staticmethod
+    def resize_and_crop(volume, target_shape):
+        """
+        调整体积到目标形状，保持比例的同时进行中心裁剪
+        :param volume: 输入体积
+        :param target_shape: 目标形状(112,96,112)
+        :return: 调整后的体积
+        """
+        # 1. 计算缩放比例
+        zoom_factors = [t / s for t, s in zip(target_shape, volume.shape[-3:])]
+
+        # 2. 执行缩放(保持长宽比)
+        min_zoom = min(zoom_factors)
+        zoom_factors = [min_zoom] * 3
+
+        # 3. 执行缩放
+        order = 1  # 线性插值
+        if volume.ndim == 4:  # 如果是多通道数据
+            scaled = zoom(volume, zoom=[1] * (volume.ndim - 3) + zoom_factors, order=order)
+        else:
+            scaled = zoom(volume, zoom=zoom_factors, order=order)
+
+        # 4. 中心裁剪到目标尺寸
+        crop_slices = []
+        for i in range(3):
+            start = max((scaled.shape[i] - target_shape[i]) // 2, 0)
+            end = start + target_shape[i]
+            crop_slices.append(slice(start, end))
+        if volume.ndim == 4:
+            return scaled[:, crop_slices[0], crop_slices[1], crop_slices[2]]
+        else:
+            return scaled[crop_slices[0], crop_slices[1], crop_slices[2]]
