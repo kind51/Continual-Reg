@@ -110,16 +110,18 @@ class DataProvider(Dataset):
         labels = np.pad(labels, pad_width, mode='constant')
         masks = np.pad(masks, pad_width, mode='constant')
 
-        # 获取头信息（假设 load_image_nii 可返回头信息，或从 ITK 图像获取）
-        head1 = img1_itk.GetMetaDataDictionary()  # 若 SimpleITK 图像有元数据
-        head2 = img2_itk.GetMetaDataDictionary()
+        # ====================== 修正元数据获取 ======================
+        # SimpleITK 正确获取元数据的方式：遍历键值对
+        head1 = {key: img1_itk.GetMetaData(key) for key in img1_itk.GetMetaDataKeys()}
+        head2 = {key: img2_itk.GetMetaData(key) for key in img2_itk.GetMetaDataKeys()}
+        # ==========================================================
 
         return {
             'images': images.astype(np.float32),
             'labels': labels.astype(np.float32),
             'masks': masks.astype(np.float32),
             'affines': [aff1, aff2],
-            'headers': [head1, head2],
+            'headers': [head1, head2],  # 使用字典存储元数据
             'names': f"{os.path.basename(name1)[:-7]}_{os.path.basename(name2)[:-7]}"
         }
 
